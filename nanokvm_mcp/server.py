@@ -345,6 +345,112 @@ async def nanokvm_screenshot(
 
 
 # =============================================================================
+# OCR Tool (Tesseract)
+# =============================================================================
+
+
+@mcp.tool()
+async def nanokvm_ocr(
+    lang: str = "eng",
+    region: tuple[int, int, int, int] | None = None,
+    psm: int = 6,
+    return_boxes: bool = False,
+    preprocess: bool = True,
+) -> dict:
+    """
+    Capture a screenshot and run Tesseract OCR on it.
+
+    Lets an AI driver read what's on the target's screen (BIOS menus,
+    grub entries, Windows setup wizards, error dialogs) and reason
+    about it without needing image-to-text via the model. Particularly
+    useful for unattended installs and headless debugging.
+
+    Requires the `ocr` extra:  uv pip install '.[ocr]'
+    plus the system `tesseract` binary (brew install tesseract).
+
+    Args:
+        lang: Tesseract language code (default "eng"). Multi-language:
+            "eng+deu". Run `tesseract --list-langs` to see installed.
+        region: Optional crop as (left, top, right, bottom) in pixels.
+            None means full screen. Use to OCR a specific area faster
+            (e.g. a single dialog button).
+        psm: Page Segmentation Mode (Tesseract --psm). 6 = uniform block
+            of text (default), 7 = single line, 11 = sparse text.
+            See `tesseract --help-psm` for the full list.
+        return_boxes: If True, also return word-level bounding boxes.
+        preprocess: If True, convert to grayscale and apply a binary
+            threshold before OCR. Usually improves accuracy on BIOS-
+            style screens with low contrast.
+
+    Returns:
+        dict with:
+          - "text": full recognized text (newline-separated)
+          - "screen": {"width": W, "height": H}
+          - "boxes": list of {text, conf, left, top, width, height} if
+            return_boxes=True, otherwise omitted.
+    """
+    try:
+        import pytesseract
+    except ImportError:
+        raise RuntimeError(
+            "pytesseract is not installed. Install with: "
+            "uv pip install '.[ocr]'  (also requires the `tesseract` "
+            "system binary, e.g. `brew install tesseract` on macOS)."
+        )
+
+    client = get_client()
+    jpeg_data = await client.screenshot()
+
+    img = PILImage.open(BytesIO(jpeg_data))
+    screen_w, screen_h = img.size
+
+    if region is not None:
+        img = img.crop(region)
+
+    if preprocess:
+        img = img.convert("L")
+        # Otsu-style binarisation gives Tesseract much cleaner input on
+        # BIOS-style overlays with anti-aliased text on dark backgrounds.
+        threshold = 140
+        img = img.point(lambda p: 255 if p > threshold else 0)
+
+    config = f"--psm {psm}"
+
+    result: dict = {
+        "screen": {"width": screen_w, "height": screen_h},
+    }
+
+    if return_boxes:
+        data = pytesseract.image_to_data(
+            img, lang=lang, config=config, output_type=pytesseract.Output.DICT
+        )
+        boxes = []
+        text_parts = []
+        offset_x, offset_y = (region[0], region[1]) if region else (0, 0)
+        for i, word in enumerate(data["text"]):
+            if not word.strip():
+                continue
+            boxes.append(
+                {
+                    "text": word,
+                    "conf": int(data["conf"][i]),
+                    "left": int(data["left"][i]) + offset_x,
+                    "top": int(data["top"][i]) + offset_y,
+                    "width": int(data["width"][i]),
+                    "height": int(data["height"][i]),
+                }
+            )
+            text_parts.append(word)
+        result["text"] = " ".join(text_parts)
+        result["boxes"] = boxes
+    else:
+        text = pytesseract.image_to_string(img, lang=lang, config=config)
+        result["text"] = text.strip()
+
+    return result
+
+
+# =============================================================================
 # Storage Tools
 # =============================================================================
 

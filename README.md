@@ -3,6 +3,16 @@
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
+> **Fork notice:** this is a fork of
+> [`scgreenhalgh/nanokvm-mcp`](https://github.com/scgreenhalgh/nanokvm-mcp).
+> Changes vs. upstream:
+> - **`nanokvm_ocr` tool** — Tesseract-based screen OCR so the model can
+>   read BIOS menus, installer wizards and error dialogs directly as text.
+> - **WebSocket compatibility fix** — works with `websockets>=13`
+>   (upstream uses the removed `.closed` attribute).
+> - **Auto re-auth on 401** — transparently recovers when NanoKVM-Server
+>   restarts and invalidates cached tokens.
+
 An MCP (Model Context Protocol) server for controlling [Sipeed NanoKVM](https://github.com/sipeed/NanoKVM) devices. This enables AI assistants like Claude to remotely control hardware via keyboard, mouse, power buttons, and screen capture.
 
 ## What is NanoKVM?
@@ -21,8 +31,35 @@ An MCP (Model Context Protocol) server for controlling [Sipeed NanoKVM](https://
 | **Keyboard** | Type text, send key combinations (Ctrl+C, Alt+F4, etc.) |
 | **Mouse/Touch** | Click, move, scroll, tap at absolute screen coordinates |
 | **Screenshots** | Capture display as JPEG from MJPEG video stream |
+| **OCR**          | Read on-screen text via Tesseract (BIOS menus, installers, errors) |
 | **ISO Mounting** | Mount/unmount ISO images for remote OS installation |
 | **Monitoring** | Power LED status, HDD activity, HDMI state, resolution |
+
+### OCR (optional)
+
+The `nanokvm_ocr` tool needs the `ocr` extra and the Tesseract binary
+on the host running this MCP server:
+
+```sh
+# macOS
+brew install tesseract
+uv pip install '.[ocr]'
+
+# Ubuntu / Debian
+sudo apt-get install tesseract-ocr
+uv pip install '.[ocr]'
+```
+
+Useful parameters:
+
+- `lang` — e.g. `"eng"`, `"eng+deu"`
+- `region` — `(left, top, right, bottom)` crop in pixels; faster and more
+  accurate when targeting a specific dialog button
+- `psm` — Tesseract Page Segmentation Mode (default `6` = uniform block;
+  `7` = single line, `11` = sparse text)
+- `return_boxes` — get word-level bounding boxes back along with text
+- `preprocess` — grayscale + binary threshold; helps a lot on BIOS-style
+  screens with low contrast
 
 ## Installation
 

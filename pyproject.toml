@@ -1,7 +1,7 @@
 [project]
 name = "nanokvm-mcp"
-version = "0.1.0"
-description = "MCP server for controlling NanoKVM devices"
+version = "0.2.0"
+description = "MCP server for controlling NanoKVM devices (with Tesseract OCR)"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
@@ -11,6 +11,10 @@ dependencies = [
     "pycryptodome>=3.20.0",
     "pillow>=10.0.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/jr551/nanokvm-mcp"
+Upstream = "https://github.com/scgreenhalgh/nanokvm-mcp"
 
 [project.optional-dependencies]
 ocr = ["pytesseract>=0.3.10"]

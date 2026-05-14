@@ -113,12 +113,26 @@ class NanoKVMClient:
         endpoint: str,
         **kwargs: Any,
     ) -> dict[str, Any]:
-        """Make authenticated API request."""
+        """Make authenticated API request.
+
+        Retries once on HTTP 401 by clearing the cached token and
+        re-authenticating - the NanoKVM invalidates tokens whenever
+        NanoKVM-Server restarts.
+        """
         await self._ensure_authenticated()
         client = await self._get_http_client()
 
-        response = await client.request(method, endpoint, **kwargs)
-        response.raise_for_status()
+        for attempt in range(2):
+            response = await client.request(method, endpoint, **kwargs)
+            if response.status_code == 401 and attempt == 0:
+                # Cached token died - drop it, re-auth, retry once.
+                logger.debug("Got 401 - clearing cached token and re-authenticating")
+                self._token = None
+                client.cookies.clear()
+                await self._ensure_authenticated()
+                continue
+            response.raise_for_status()
+            break
 
         data = response.json()
         if data.get("code") != 0:
@@ -264,10 +278,25 @@ class NanoKVMClient:
     # WebSocket HID Control
     # -------------------------------------------------------------------------
 
+    @staticmethod
+    def _ws_is_open(ws) -> bool:
+        """Cross-version check for an open websocket.
+
+        websockets >=13 dropped ``.closed`` in favour of a ``state`` enum
+        (``State.OPEN`` etc.). This handles both the old and new APIs.
+        """
+        if ws is None:
+            return False
+        state = getattr(ws, "state", None)
+        if state is not None:
+            return state.name == "OPEN"
+        # Old API fallback
+        return not getattr(ws, "closed", True)
+
     async def _get_websocket(self) -> websockets.WebSocketClientProtocol:
         """Get or create WebSocket connection."""
         async with self._ws_lock:
-            if self._ws is None or self._ws.closed:
+            if not self._ws_is_open(self._ws):
                 await self._ensure_authenticated()
 
                 # Build cookie header
@@ -443,37 +472,50 @@ class NanoKVMClient:
         await self._ensure_authenticated()
         client = await self._get_http_client()
 
-        headers = {}
-        if self._token:
-            headers["Cookie"] = f"nano-kvm-token={self._token}"
+        # Retry once on 401: NanoKVM-Server restarts invalidate cached tokens.
+        for attempt in range(2):
+            headers = {}
+            if self._token:
+                headers["Cookie"] = f"nano-kvm-token={self._token}"
 
-        # Use ?n=1 to request a single frame - faster and less disruptive
-        # than connecting to the continuous MJPEG stream
-        async with client.stream(
-            "GET",
-            "/api/stream/mjpeg?n=1",
-            headers=headers,
-            timeout=timeout,
-        ) as response:
-            response.raise_for_status()
-
-            buffer = b""
-            async for chunk in response.aiter_bytes():
-                buffer += chunk
-
-                # Look for JPEG frame markers
-                start = buffer.find(b'\xff\xd8')  # JPEG start
-                if start == -1:
+            # Use ?n=1 to request a single frame - faster and less disruptive
+            # than connecting to the continuous MJPEG stream
+            async with client.stream(
+                "GET",
+                "/api/stream/mjpeg?n=1",
+                headers=headers,
+                timeout=timeout,
+            ) as response:
+                if response.status_code == 401 and attempt == 0:
+                    logger.debug("Screenshot got 401 - re-authenticating")
+                    self._token = None
+                    client.cookies.clear()
+                    await self._ensure_authenticated()
                     continue
+                response.raise_for_status()
 
-                end = buffer.find(b'\xff\xd9', start)  # JPEG end
-                if end == -1:
-                    continue
+                buffer = b""
+                async for chunk in response.aiter_bytes():
+                    buffer += chunk
 
-                # Extract complete JPEG frame
-                jpeg_data = buffer[start:end + 2]
-                logger.debug(f"Captured screenshot: {len(jpeg_data)} bytes")
-                return jpeg_data
+                    # Look for JPEG frame markers
+                    start = buffer.find(b'\xff\xd8')  # JPEG start
+                    if start == -1:
+                        continue
+
+                    end = buffer.find(b'\xff\xd9', start)  # JPEG end
+                    if end == -1:
+                        continue
+
+                    # Extract complete JPEG frame
+                    jpeg_data = buffer[start:end + 2]
+                    logger.debug(f"Captured screenshot: {len(jpeg_data)} bytes")
+                    return jpeg_data
+
+            # Loop only fires again on 401-retry; if we got here without
+            # data on attempt 0, fall through to TimeoutError below.
+            if attempt == 1:
+                break
 
         raise TimeoutError("Failed to capture screenshot frame")
 
