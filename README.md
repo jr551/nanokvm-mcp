@@ -63,10 +63,34 @@ Useful parameters:
 
 ## Installation
 
+### From a tagged release (recommended)
+
+Every `v*` tag publishes a wheel + sdist to
+[GitHub Releases](https://github.com/jr551/nanokvm-mcp/releases). Pick
+the latest version and `pip install` straight from there:
+
+```bash
+# Wheel (preferred, faster install)
+pip install https://github.com/jr551/nanokvm-mcp/releases/latest/download/nanokvm_mcp-0.2.0-py3-none-any.whl
+
+# Source distribution
+pip install https://github.com/jr551/nanokvm-mcp/releases/latest/download/nanokvm_mcp-0.2.0.tar.gz
+
+# With OCR extra
+pip install 'nanokvm-mcp[ocr] @ https://github.com/jr551/nanokvm-mcp/releases/latest/download/nanokvm_mcp-0.2.0.tar.gz'
+```
+
+### Direct from git (any branch or tag)
+
+```bash
+uv pip install git+https://github.com/jr551/nanokvm-mcp.git@main
+uv pip install 'git+https://github.com/jr551/nanokvm-mcp.git@v0.2.0#egg=nanokvm-mcp[ocr]'
+```
+
 ### From Source
 
 ```bash
-git clone https://github.com/scgreenhalgh/nanokvm-mcp.git
+git clone https://github.com/jr551/nanokvm-mcp.git
 cd nanokvm-mcp
 pip install -e .
 ```
